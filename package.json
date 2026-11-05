@@ -1,0 +1,16 @@
+{
+  "name": "noonan-warehouse-inventory",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Noonan Electric warehouse inventory app: crews log material by photo or voice.",
+  "scripts": {
+    "dev": "node dev-server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

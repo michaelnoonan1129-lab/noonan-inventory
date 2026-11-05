@@ -1,12 +1,7 @@
 {
-  "outputDirectory": "public",
   "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "same-origin" }
-      ]
-    }
+    { "source": "/(.*)", "headers": [ { "key": "X-Content-Type-Options", "value": "nosniff" } ] }
   ]
 }
+Paste with Command + V. If a line that just says json shows up, delete it.
+Send me a screenshot before you commit, and I’ll confirm it’s right.

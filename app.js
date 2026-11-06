@@ -40,12 +40,14 @@ function setView(v) {
   $$("nav.tabs button[data-view]").forEach(b => { if (b.dataset.view === v) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
   if (location.hash.slice(1) !== v) history.replaceState(null, "", "#" + v);
   $("main").scrollTop = 0;
+  if (v === "reports" && token) setTimeout(loadReport, 0);
 }
 $$("nav.tabs button[data-view]").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
-setView(["log", "stock", "activity"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "log");
+const VIEWS = ["log", "stock", "activity", "reports"];
+setView(VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "log");
 
 function paintLoc() { $$("#locSeg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.loc === loc)); }
-$$("#locSeg button").forEach(b => b.addEventListener("click", () => { loc = b.dataset.loc; lsSet("loc", loc); paintLoc(); renderAll(); }));
+$$("#locSeg button").forEach(b => b.addEventListener("click", () => { loc = b.dataset.loc; lsSet("loc", loc); paintLoc(); renderAll(); if (!$("#view-reports").hidden) loadReport(); }));
 paintLoc();
 
 function paintAction() {
@@ -158,6 +160,7 @@ async function refresh() {
     banner("");
     $$(".admin-only").forEach(el => el.hidden = !isAdmin());
     renderAll();
+    if (rData) renderReport();
   } catch (e) { if (e.status !== 401) banner(e.message); }
 }
 function poll() {
@@ -456,6 +459,87 @@ function crewForm(c) {
     } catch (e) { toast(e.message); }
   };
 }
+
+/* ---------- reports ---------- */
+const thisMonth = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); };
+let rMonth = thisMonth(), rData = null, rLoading = 0;
+const monthName = (m, short) => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo - 1, 1).toLocaleDateString([], short ? { month: "short" } : { month: "long", year: "numeric" }); };
+const shiftMonth = (m, n) => { const [y, mo] = m.split("-").map(Number); const d = new Date(y, mo - 1 + n, 1); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); };
+
+async function loadReport() {
+  const my = ++rLoading;
+  $("#mLabel").textContent = monthName(rMonth);
+  $("#mNext").disabled = rMonth >= thisMonth();
+  $("#rBody").innerHTML = '<tr><td colspan="5" class="empty">Loading…</td></tr>';
+  try {
+    const d = await api("report", { month: rMonth, location: loc === "Both" ? null : loc });
+    if (my !== rLoading) return;
+    rData = d; renderReport();
+  } catch (e) { if (my === rLoading) $("#rBody").innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`; }
+}
+function reportRows() {
+  const q = $("#rSearch").value.trim().toLowerCase();
+  return (rData ? rData.items : []).filter(r => !q || (r.name || "").toLowerCase().includes(q));
+}
+function renderReport() {
+  if (!rData) return;
+  const rows = reportRows();
+  $("#rPulls").textContent = rData.people.reduce((a, p) => a + p.pulls, 0);
+  $("#rItems").textContent = rData.items.filter(r => r.taken > 0).length;
+  $("#rJobs").textContent = rData.jobs.filter(j => j.job !== "(no job)").length;
+  $("#rBody").innerHTML = rows.length ? rows.map(r => `<tr data-id="${esc(r.id)}">
+      <td>${esc(r.name)}<br><span class="hint">${esc(r.unit || "ea")}${r.pulls ? " · " + r.pulls + " pull" + (r.pulls > 1 ? "s" : "") : ""}</span></td>
+      <td>${esc(fmtQty(r.taken))}</td><td>${esc(fmtQty(r.returned))}</td><td><b>${esc(fmtQty(r.used))}</b></td><td>${esc(fmtQty(r.received))}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">${rData.items.length ? "No items match." : "Nothing logged in " + esc(monthName(rMonth)) + "."}</td></tr>`;
+  $("#rJobList").innerHTML = rData.jobs.length ? rData.jobs.map(j => `<li><span>${esc(j.job)}</span><span>${j.pulls} pull${j.pulls > 1 ? "s" : ""}</span></li>`).join("") : '<li class="hint">No pulls yet.</li>';
+  $("#rPeopleList").innerHTML = rData.people.length ? rData.people.map(p => `<li><span>${esc(who(p.id))}</span><span>${p.pulls} pull${p.pulls > 1 ? "s" : ""}</span></li>`).join("") : '<li class="hint">No pulls yet.</li>';
+}
+$("#mPrev").addEventListener("click", () => { rMonth = shiftMonth(rMonth, -1); loadReport(); });
+$("#mNext").addEventListener("click", () => { if (rMonth < thisMonth()) { rMonth = shiftMonth(rMonth, 1); loadReport(); } });
+$("#rSearch").addEventListener("input", renderReport);
+$("#rBody").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr) itemHistory(tr.dataset.id); });
+
+async function itemHistory(id) {
+  const r = rData && rData.items.find(x => x.id === id);
+  const it = itemById(id);
+  const name = (it && it.name) || (r && r.name) || "Item", unit = (it && it.unit) || (r && r.unit) || "ea";
+  openModal(`<h2>${esc(name)}</h2><p class="hint">Used per month (${esc(unit)}), last 12 months</p><div class="working"><div class="spin"></div><span>Loading…</span></div>`);
+  let d;
+  try { d = await api("report_item", { itemId: id }); } catch (e) { $("#sheet").innerHTML = `<h2>${esc(name)}</h2><p class="err">${esc(e.message)}</p><button class="btn" id="hClose">Close</button>`; $("#hClose").onclick = closeModal; return; }
+  const months = Array.from({ length: 12 }, (_, i) => shiftMonth(thisMonth(), i - 11));
+  const byM = Object.fromEntries(d.months.map(m => [m.month, m.used]));
+  const vals = months.map(m => Math.max(0, byM[m] || 0));
+  const max = Math.max(1, ...vals);
+  const total = vals.reduce((a, v) => a + v, 0);
+  const active = vals.filter(v => v > 0).length;
+  $("#sheet").innerHTML = `<h2>${esc(name)}</h2>
+    <p class="hint">Used per month (${esc(unit)}), last 12 months</p>
+    <div class="stats">
+      <div class="stat"><b class="num">${esc(fmtQty(total))}</b><span>12-month total</span></div>
+      <div class="stat"><b class="num">${esc(fmtQty(Math.round(total / 12 * 10) / 10))}</b><span>avg per month</span></div>
+      <div class="stat"><b class="num">${esc(fmtQty(it ? it.qty : 0))}</b><span>on hand now</span></div>
+    </div>
+    <div class="bars">${vals.map((v, i) => `<div title="${esc(monthName(months[i]))}: ${esc(fmtQty(v))}"><span class="v">${v ? esc(fmtQty(v)) : ""}</span><span class="b" style="height:${Math.round(v / max * 100)}%"></span></div>`).join("")}</div>
+    <div class="barlabels">${months.map(m => `<span>${esc(monthName(m, true))}</span>`).join("")}</div>
+    ${active < 3 ? '<p class="hint">Only a little history so far. This fills in as crews keep logging.</p>' : ""}
+    <h2 style="font-size:18px">Top jobs for this item</h2>
+    <ul class="minilist">${d.jobs.length ? d.jobs.map(j => `<li><span>${esc(j.job)}</span><span>${esc(fmtQty(j.qty))} ${esc(unit)}</span></li>`).join("") : '<li class="hint">None yet.</li>'}</ul>
+    <button class="btn" id="hClose">Close</button>`;
+  $("#hClose").onclick = closeModal;
+}
+
+$("#rCsv").addEventListener("click", () => {
+  if (!rData) return;
+  const cell = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [["Item", "Unit", "Out", "Back", "Used", "Restocked", "Pulls"].join(",")]
+    .concat(reportRows().map(r => [r.name, r.unit, r.taken, r.returned, r.used, r.received, r.pulls].map(cell).join(",")));
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `noonan-inventory-${rMonth}${loc === "Both" ? "" : "-" + loc.toLowerCase()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
 
 /* ---------- go ---------- */
 if (token) startApp(); else showLogin();

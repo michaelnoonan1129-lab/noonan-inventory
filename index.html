@@ -141,7 +141,30 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
 header{padding-top:calc(10px + env(safe-area-inset-top))}
-nav.tabs{grid-template-columns:repeat(4,1fr)}
+nav.tabs{grid-template-columns:repeat(5,1fr)}
+.monthbar{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.monthbar h2{font-size:24px;text-transform:uppercase;text-align:center;flex:1}
+.monthbar button{width:44px;height:44px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:20px;font-weight:700}
+.rtable{width:100%;border-collapse:collapse;font-size:15px}
+.rtable th{text-align:right;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;padding:10px 8px;border-bottom:1px solid var(--line)}
+.rtable th:first-child,.rtable td:first-child{text-align:left}
+.rtable td{text-align:right;padding:12px 8px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.rtable tr:first-child td{border-top:0}
+.rtable tbody tr{cursor:pointer}
+.rtable tbody tr:hover{background:var(--bg)}
+.rtable td b{font-family:var(--display);font-size:20px}
+.rwrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+.bars{display:flex;align-items:flex-end;gap:6px;height:160px;padding:8px 0;border-bottom:1px solid var(--line)}
+.bars div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
+.bars span.b{width:100%;background:var(--accent);border-radius:4px 4px 0 0;min-height:2px}
+.bars span.v{font-size:11px;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600}
+.bars span.v:empty{display:none}
+.barlabels{display:flex;gap:6px}
+.barlabels span{flex:1;text-align:center;font-size:11px;color:var(--muted)}
+.minilist{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.minilist li{display:flex;justify-content:space-between;gap:10px;font-size:15px}
+.minilist li span:last-child{font-variant-numeric:tabular-nums;font-weight:600}
+@media (min-width:900px){#view-reports .twocol{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
 #app[hidden],#login[hidden]{display:none}
 #app{display:flex;flex-direction:column;flex:1;min-height:0}
 #login{flex:1;overflow:auto;padding:16px}
@@ -264,6 +287,36 @@ nav.tabs{grid-template-columns:repeat(4,1fr)}
       <p class="hint">Shows the latest 300 entries.</p>
     </div>
   </section>
+
+  <section class="view" id="view-reports" hidden>
+    <div class="wrap">
+      <div class="monthbar">
+        <button id="mPrev" aria-label="Previous month">‹</button>
+        <h2 id="mLabel">This month</h2>
+        <button id="mNext" aria-label="Next month">›</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><b class="num" id="rPulls">0</b><span>pulls</span></div>
+        <div class="stat"><b class="num" id="rItems">0</b><span>different items</span></div>
+        <div class="stat"><b class="num" id="rJobs">0</b><span>jobs</span></div>
+      </div>
+      <div class="row">
+        <input type="search" id="rSearch" class="grow" placeholder="Search an item, like GFI" aria-label="Search report">
+        <button class="btn sm" id="rCsv">Download spreadsheet</button>
+      </div>
+      <div class="rwrap">
+        <table class="rtable">
+          <thead><tr><th>Item</th><th>Out</th><th>Back</th><th>Used</th><th>Restocked</th></tr></thead>
+          <tbody id="rBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">Used = out minus back. Tap an item to see the last 12 months. Undone entries don't count.</p>
+      <div class="twocol">
+        <div class="card"><h2>Top jobs</h2><ul class="minilist" id="rJobList"></ul></div>
+        <div class="card"><h2>Who pulled</h2><ul class="minilist" id="rPeopleList"></ul></div>
+      </div>
+    </div>
+  </section>
 </div>
 </main>
 
@@ -271,6 +324,7 @@ nav.tabs{grid-template-columns:repeat(4,1fr)}
   <button data-view="log" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>Log</button>
   <button data-view="stock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>Stock</button>
   <button data-view="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Activity</button>
+  <button data-view="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Reports</button>
   <button id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Me</button>
 </nav>
 </div>

@@ -4,6 +4,7 @@ import pg from "pg";
 import crypto from "node:crypto";
 
 const LOCATIONS = ["Livonia", "Brighton"];
+const TZ = "America/Detroit";
 const ACTIONS = ["take", "return", "receive"];
 const TOKEN_DAYS = 365;
 const MAX_FAILS = 5;
@@ -404,6 +405,63 @@ const routes = {
     const pin = validPin(b.pin);
     const { rows: [r] } = await q("update crew set pin_hash=$2, token_version=token_version+1 where id=$1 returning *", [me.id, hashPin(pin)]);
     return { token: tokenFor(r) };
+  },
+
+  // Monthly totals per item: how much went out, came back and was restocked.
+  async report(req, b) {
+    await auth(req);
+    const month = /^\d{4}-\d{2}$/.test(String(b.month || "")) ? b.month : null;
+    if (!month) throw httpError(400, "Pick a month.");
+    const where = LOCATIONS.includes(b.location) ? b.location : null;
+    const params = [month + "-01"];
+    if (where) params.push(where);
+    const base = `from moves m, jsonb_array_elements(m.lines) l
+      where not m.voided and m.action in ('take','return','receive')
+        and m.at >= ($1::timestamp at time zone '${TZ}')
+        and m.at <  (($1::timestamp + interval '1 month') at time zone '${TZ}')
+        ${where ? "and m.location = $2" : ""}`;
+    const qty = "coalesce((l->>'qty')::numeric, 0)";
+    const [items, jobs, people] = await Promise.all([
+      q(`select l->>'itemId' id, max(l->>'name') name, max(l->>'unit') unit,
+           sum(case when m.action='take' then ${qty} else 0 end) taken,
+           sum(case when m.action='return' then ${qty} else 0 end) returned,
+           sum(case when m.action='receive' then ${qty} else 0 end) received,
+           count(distinct m.id) filter (where m.action='take') pulls
+         ${base} group by 1 order by 4 desc, 2`, params),
+      q(`select coalesce(nullif(m.job,''),'(no job)') job, count(distinct m.id) pulls
+         ${base} and m.action='take' group by 1 order by 2 desc limit 10`, params),
+      q(`select m.crew_id id, count(distinct m.id) pulls
+         ${base} and m.action='take' group by 1 order by 2 desc limit 20`, params),
+    ]);
+    const n = v => Number(v) || 0;
+    return {
+      month,
+      items: items.rows.map(r => ({ id: r.id, name: r.name, unit: r.unit, taken: n(r.taken), returned: n(r.returned), used: n(r.taken) - n(r.returned), received: n(r.received), pulls: n(r.pulls) })),
+      jobs: jobs.rows.map(r => ({ job: r.job, pulls: n(r.pulls) })),
+      people: people.rows.map(r => ({ id: r.id, pulls: n(r.pulls) })),
+    };
+  },
+
+  // One item over the last 12 months, plus the jobs that used it most.
+  async report_item(req, b) {
+    await auth(req);
+    const id = str(b.itemId, 60);
+    const base = `from moves m, jsonb_array_elements(m.lines) l
+      where not m.voided and l->>'itemId' = $1
+        and m.at >= (date_trunc('month', now() at time zone '${TZ}') - interval '11 months') at time zone '${TZ}'`;
+    const qty = "coalesce((l->>'qty')::numeric, 0)";
+    const [months, jobs] = await Promise.all([
+      q(`select to_char(date_trunc('month', m.at at time zone '${TZ}'), 'YYYY-MM') mon,
+           sum(case when m.action='take' then ${qty} else 0 end) taken,
+           sum(case when m.action='return' then ${qty} else 0 end) returned
+         ${base} group by 1 order by 1`, [id]),
+      q(`select coalesce(nullif(m.job,''),'(no job)') job, sum(${qty}) qty
+         ${base} and m.action='take' group by 1 order by 2 desc limit 8`, [id]),
+    ]);
+    return {
+      months: months.rows.map(r => ({ month: r.mon, used: (Number(r.taken) || 0) - (Number(r.returned) || 0) })),
+      jobs: jobs.rows.map(r => ({ job: r.job, qty: Number(r.qty) || 0 })),
+    };
   },
 };
 
